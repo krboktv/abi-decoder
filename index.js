@@ -13,9 +13,8 @@ function _getABIs() {
 function _typeToString(input) {
   if (input.type === "tuple") {
     return "(" + input.components.map(_typeToString).join(",") + ")";
-  }
-  if (input.type === "tuple[]") {
-    return "(" + input.components.map(_typeToString).join(",") + ")[]";
+  } else if (input.type.substring(0, "tuple".length) === "tuple") { // tuple[], or tuple[][], etc
+    return "(" + input.components.map(_typeToString).join(",") + ")" + input.type.substring("tuple".length);
   }
   return input.type;
 }
@@ -27,11 +26,11 @@ function _addABI(abiArray) {
     abiArray.map(function(abi) {
       if (abi.name) {
         const signature = sha3(
-          abi.name +
+            abi.name +
             "(" +
             abi.inputs
-              .map(_typeToString)
-              .join(",") +
+                .map(_typeToString)
+                .join(",") +
             ")"
         );
         if (abi.type === "event") {
@@ -54,13 +53,13 @@ function _removeABI(abiArray) {
     abiArray.map(function(abi) {
       if (abi.name) {
         const signature = sha3(
-          abi.name +
+            abi.name +
             "(" +
             abi.inputs
-              .map(function(input) {
-                return input.type;
-              })
-              .join(",") +
+                .map(function(input) {
+                  return input.type;
+                })
+                .join(",") +
             ")"
         );
         if (abi.type === "event") {
@@ -100,6 +99,7 @@ function _decodeMethod(data) {
       const isUint = abiItem.inputs[i].type.indexOf("uint") === 0;
       const isInt = abiItem.inputs[i].type.indexOf("int") === 0;
       const isAddress = abiItem.inputs[i].type.indexOf("address") === 0;
+      const isTuple = abiItem.inputs[i].type.indexOf("tuple") === 0;
 
       if (isUint || isInt) {
         const isArray = Array.isArray(param);
@@ -122,11 +122,20 @@ function _decodeMethod(data) {
         }
       }
 
-      retData.params.push({
-        name: abiItem.inputs[i].name,
-        value: parsedParam,
-        type: abiItem.inputs[i].type,
-      });
+      if (!isTuple) {
+        retData.params.push({
+          name: abiItem.inputs[i].name,
+          value: parsedParam,
+          type: abiItem.inputs[i].type,
+        });
+      } else {
+        retData.params.push({
+          name: abiItem.inputs[i].name,
+          internalNames: abiItem.inputs[i].components.map(x => x.name) || '',
+          value: parsedParam,
+          type: _typeToString(abiItem.inputs[i])
+        });
+      }
     }
 
     return retData;
@@ -151,8 +160,8 @@ function _decodeLogs(logs) {
       });
 
       const decodedData = abiCoder.decodeParameters(
-        dataTypes,
-        logData.slice(2)
+          dataTypes,
+          logData.slice(2)
       );
 
       // Loop topic and data to get the params
@@ -182,9 +191,9 @@ function _decodeLogs(logs) {
         }
 
         if (
-          param.type === "uint256" ||
-          param.type === "uint8" ||
-          param.type === "int"
+            param.type === "uint256" ||
+            param.type === "uint8" ||
+            param.type === "int"
         ) {
           // ensure to remove leading 0x for hex numbers
           if (typeof decodedP.value === "string" && decodedP.value.startsWith("0x")) {
